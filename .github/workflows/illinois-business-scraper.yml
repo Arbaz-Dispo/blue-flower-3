@@ -27,7 +27,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}/data-processor
+  IMAGE_NAME: ${{ github.repository_owner }}/data-processor
 
 jobs:
   # Build and push Docker image (only when needed)
@@ -63,13 +63,13 @@ jobs:
       with:
         context: .
         push: true
-        tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+        tags: ${{ env.REGISTRY }}/${{ github.repository_owner }}/data-processor:latest
         cache-from: |
           type=gha
-          type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:cache
+          type=registry,ref=${{ env.REGISTRY }}/${{ github.repository_owner }}/data-processor:cache
         cache-to: |
           type=gha,mode=max
-          type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:cache,mode=max
+          type=registry,ref=${{ env.REGISTRY }}/${{ github.repository_owner }}/data-processor:cache,mode=max
         platforms: linux/amd64
         build-args: |
           BUILDKIT_INLINE_CACHE=1
@@ -97,73 +97,74 @@ jobs:
     - name: Determine Docker image to use
       id: image
       run: |
-        # Always use the latest tag for simplicity
-        IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
+        # Convert repository name to lowercase for Docker registry
+        REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+        IMAGE_TAG="${{ env.REGISTRY }}/${REPO_LOWER}/data-processor:latest"
         echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
         echo "Using Docker image: $IMAGE_TAG"
         
-    - name: Optimized Docker setup (targeting 10-15 seconds)
+    - name: Optimized Docker setup
       run: |
         IMAGE_TAG="${{ steps.image.outputs.image_tag }}"
-        echo "🚀 Ultra-fast Docker setup: $IMAGE_TAG"
+        echo "🚀 Optimized Docker setup: $IMAGE_TAG"
         
-        # Enable Docker BuildKit for maximum speed
+        # Enable Docker BuildKit for faster operations
         export DOCKER_BUILDKIT=1
-        export BUILDKIT_PROGRESS=plain
         
-        # Aggressive pull strategy
-        echo "📦 Fast pull strategy..."
+        # Try multiple strategies for fastest pull
+        echo "📦 Attempting pull strategies..."
         
-        # Strategy 1: Ultra-fast pull with shorter timeout
-        if timeout 30s docker pull "$IMAGE_TAG" 2>/dev/null; then
-          echo "✅ Pre-built image pulled (fast path)"
+        # Strategy 1: Direct pull (usually fastest if image exists)
+        if timeout 45s docker pull "$IMAGE_TAG" 2>/dev/null; then
+          echo "✅ Pre-built image pulled successfully"
           echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
           
-        # Strategy 2: Immediate local build (no slow fallbacks)
+        # Strategy 2: Check if we can build with cache faster than pull
         elif [ -f "Dockerfile" ]; then
-          echo "🔨 Fast local build..."
+          echo "🔨 Building with cache (may be faster than remote pull)..."
           docker build \
             --cache-from "$IMAGE_TAG" \
             --build-arg BUILDKIT_INLINE_CACHE=1 \
-            --build-arg DEBIAN_FRONTEND=noninteractive \
             -t data-processor:local \
-            . 2>/dev/null || docker build -t data-processor:local .
+            . || docker build -t data-processor:local .
           echo "IMAGE_TAG=data-processor:local" >> $GITHUB_ENV
           
         else
-          echo "❌ Setup failed"
+          echo "❌ No Dockerfile found and pull failed"
           exit 1
         fi
         
-        echo "✅ Docker ready!"
+        echo "✅ Docker setup complete!"
         
-    - name: Parse file number and setup request ID (fast)
+    - name: Parse file number and setup request ID
       id: parse-file
       run: |
         FILE_NUMBER="${{ github.event.inputs.file_number || '09853537' }}"
         REQUEST_ID="${{ github.event.inputs.request_id || '' }}"
         
-        # Quick ID generation (no complex date formatting)
+        # Generate a fallback request ID if none provided
         if [ -z "$REQUEST_ID" ]; then
-          REQUEST_ID="il-${{ github.run_number }}-$(date +%s)"
+          REQUEST_ID="dp-$(date +%Y%m%d)-${{ github.run_number }}-$(date +%s)"
         fi
         
         echo "file_number=$FILE_NUMBER" >> $GITHUB_OUTPUT
         echo "request_id=$REQUEST_ID" >> $GITHUB_OUTPUT
-        echo "Processing: $FILE_NUMBER (ID: $REQUEST_ID)"
+        echo "Processing entity file number: $FILE_NUMBER with request ID: $REQUEST_ID"
         
-    - name: Run data processor (instant start)
+    - name: Run data processor
       id: processor
       env:
         SOLVECAPTCHA_API_KEY: ${{ secrets.SOLVECAPTCHA_API_KEY }}
         FILE_NUMBER: ${{ steps.parse-file.outputs.file_number }}
         REQUEST_ID: ${{ steps.parse-file.outputs.request_id }}
       run: |
-        echo "🚀 Starting processor..."
+        echo "🚀 Starting data processor..."
+        echo "File Number: $FILE_NUMBER"
+        echo "Request ID: $REQUEST_ID"
         
-        # Minimal overhead execution
+        # Run the data processor with timeout
         docker run --rm \
-          --name processor-${{ github.run_number }} \
+          --name data-processor-${{ github.run_number }} \
           -e SOLVECAPTCHA_API_KEY="${SOLVECAPTCHA_API_KEY}" \
           -e FILE_NUMBER="${FILE_NUMBER}" \
           -e REQUEST_ID="${REQUEST_ID}" \
@@ -175,8 +176,14 @@ jobs:
           "$IMAGE_TAG" \
           timeout 900s python entity_processor.py "${FILE_NUMBER}"
         
-        # Quick success check
-        [ -f "processed_data_${REQUEST_ID}.json" ] && echo "processing_success=true" >> $GITHUB_OUTPUT || echo "processing_success=false" >> $GITHUB_OUTPUT
+        # Check if processing was successful
+        if [ -f "processed_data_${REQUEST_ID}.json" ]; then
+          echo "processing_success=true" >> $GITHUB_OUTPUT
+          echo "✅ Processing completed successfully"
+        else
+          echo "processing_success=false" >> $GITHUB_OUTPUT
+          echo "❌ Processing failed - no output file found"
+        fi
         
     - name: List generated files
       run: |
