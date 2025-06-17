@@ -1,0 +1,7 @@
+# Entity Data Processor Dependencies
+seleniumbase>=4.25.0
+requests>=2.31.0
+selenium>=4.15.0
+beautifulsoup4>=4.12.0
+lxml>=4.9.0
+flask>=2.3.0 
