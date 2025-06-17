@@ -38,7 +38,7 @@ jobs:
       contents: read
       packages: write
     outputs:
-      image-tag: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+      image-tag: ${{ steps.repo.outputs.image_tag }}
     
     steps:
     - name: Checkout repository
@@ -50,6 +50,16 @@ jobs:
         driver-opts: |
           image=moby/buildkit:buildx-stable-1
           network=host
+        
+    - name: Set lowercase repository name
+      id: repo
+      run: |
+        REPO_OWNER_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+        IMAGE_TAG="ghcr.io/${REPO_OWNER_LOWER}/data-processor:latest"
+        echo "owner_lower=$REPO_OWNER_LOWER" >> $GITHUB_OUTPUT
+        echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+        echo "Using lowercase owner: $REPO_OWNER_LOWER"
+        echo "Image tag: $IMAGE_TAG"
         
     - name: Log in to Container Registry
       uses: docker/login-action@v3
@@ -63,13 +73,13 @@ jobs:
       with:
         context: .
         push: true
-        tags: ${{ env.REGISTRY }}/${{ github.repository_owner }}/data-processor:latest
+        tags: ${{ steps.repo.outputs.image_tag }}
         cache-from: |
           type=gha
-          type=registry,ref=${{ env.REGISTRY }}/${{ github.repository_owner }}/data-processor:cache
+          type=registry,ref=${{ env.REGISTRY }}/${{ steps.repo.outputs.owner_lower }}/data-processor:cache
         cache-to: |
           type=gha,mode=max
-          type=registry,ref=${{ env.REGISTRY }}/${{ github.repository_owner }}/data-processor:cache,mode=max
+          type=registry,ref=${{ env.REGISTRY }}/${{ steps.repo.outputs.owner_lower }}/data-processor:cache,mode=max
         platforms: linux/amd64
         build-args: |
           BUILDKIT_INLINE_CACHE=1
