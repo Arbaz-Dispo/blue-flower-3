@@ -379,15 +379,12 @@ def get_captcha_solved_cookies(file_number):
     with SB(uc=True, locale="en", headless=True, xvfb=True) as sb:
         url = "https://apps.ilsos.gov/businessentitysearch/"
         sb.activate_cdp_mode(url, tzone="America/Chicago")
-        sb.sleep(3)
 
         try:
             print("Checking for search input on Illinois page...")
             sb.wait_for_element_present('input[type="text"]', timeout=10)
             print("Search input found on Illinois page!")
-            
-            sb.sleep(2)
-            
+                        
             # Click on the file number input field
             print("Clicking on file number input field...")
             sb.click('input[id="fileNumber"]')
@@ -400,7 +397,6 @@ def get_captcha_solved_cookies(file_number):
             print("Clicking submit button...")
             sb.click('input[type="submit"]')
             
-            sb.sleep(3)
             print("Form submitted successfully!")
             
             # Now check if we're redirected to captcha page
