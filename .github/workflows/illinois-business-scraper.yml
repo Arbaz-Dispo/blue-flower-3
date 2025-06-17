@@ -27,7 +27,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}/data-processor
+  IMAGE_NAME_RAW: ${{ github.repository }}/data-processor
 
 jobs:
   # Build and push Docker image (only when needed)
@@ -41,6 +41,12 @@ jobs:
       image-tag: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
     
     steps:
+    - name: Set lowercase image name
+      run: |
+        IMAGE_NAME_LOWER=$(echo "${{ env.IMAGE_NAME_RAW }}" | tr '[:upper:]' '[:lower:]')
+        echo "IMAGE_NAME=$IMAGE_NAME_LOWER" >> $GITHUB_ENV
+        echo "Using image name: $IMAGE_NAME_LOWER"
+        
     - name: Checkout repository
       uses: actions/checkout@v4
       
@@ -84,6 +90,12 @@ jobs:
       packages: read
     
     steps:
+    - name: Set lowercase image name
+      run: |
+        IMAGE_NAME_LOWER=$(echo "${{ env.IMAGE_NAME_RAW }}" | tr '[:upper:]' '[:lower:]')
+        echo "IMAGE_NAME=$IMAGE_NAME_LOWER" >> $GITHUB_ENV
+        echo "Using image name: $IMAGE_NAME_LOWER"
+        
     - name: Checkout repository
       uses: actions/checkout@v4
       
@@ -97,7 +109,7 @@ jobs:
     - name: Determine Docker image to use
       id: image
       run: |
-        # Always use the latest tag for simplicity
+        # Use the lowercase image name set at the job level
         IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
         echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
         echo "Using Docker image: $IMAGE_TAG"
