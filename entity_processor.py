@@ -371,7 +371,7 @@ def parse_td_ids(html_content):
 
 def get_captcha_solved_cookies_and_headers(file_number):
     """Get cookies and headers by solving captcha once using the provided file number"""
-    with SB(uc=True, locale="en") as sb:
+    with SB(uc=True, locale="en", headless=True, xvfb=True) as sb:
         url = "https://apps.ilsos.gov/businessentitysearch/"
         sb.activate_cdp_mode(url, tzone="America/Chicago")
         sb.sleep(3)
