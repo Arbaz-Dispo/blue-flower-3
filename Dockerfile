@@ -69,4 +69,4 @@ RUN google-chrome --version
 
 CMD ["/bin/bash"] 
 
-#line for building image
+# lol line for building image
