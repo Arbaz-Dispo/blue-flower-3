@@ -9,7 +9,11 @@ import uuid
 import sys
 from datetime import datetime
 
-API_KEY = os.getenv("SOLVECAPTCHA_API_KEY", "e8241ace650146ad502519d5ef2bf819")
+# API key must be provided via environment variable for security
+API_KEY = os.getenv("SOLVECAPTCHA_API_KEY")
+if not API_KEY:
+    raise ValueError("SOLVECAPTCHA_API_KEY environment variable is required")
+    
 SOLVE_URL = "https://api.solvecaptcha.com/in.php"
 RESULT_URL = "https://api.solvecaptcha.com/res.php"
 
