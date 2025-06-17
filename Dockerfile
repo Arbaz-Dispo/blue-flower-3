@@ -1,4 +1,4 @@
-
+# Optimized build for Entity Data Processor
 FROM ubuntu:22.04 AS base
 
 # Prevent interactive prompts
