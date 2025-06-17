@@ -204,6 +204,8 @@ jobs:
         find . -name "*.json" -type f
         echo "Looking for log files:"
         find . -name "logs/*" -type f 2>/dev/null || echo "No logs directory found"
+        echo "Looking for screenshots:"
+        find . -name "logs/*.png" -type f 2>/dev/null || echo "No screenshots found"
         
     - name: Upload processed data as artifact
       uses: actions/upload-artifact@v4
