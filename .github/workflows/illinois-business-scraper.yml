@@ -1,0 +1,239 @@
+name: Data Processing Workflow
+
+on:
+  workflow_dispatch:  # Allows manual triggering
+    inputs:
+      file_number:
+        description: 'Entity file number to process (e.g., "09853537")'
+        required: true
+        default: '09853537'
+      request_id:
+        description: 'Unique request ID (for tracking requests)'
+        required: false
+        default: ''
+      test_run:
+        description: 'Test run (optional)'
+        required: false
+        default: 'false'
+      force_rebuild:
+        description: 'Force rebuild Docker image'
+        required: false
+        default: 'false'
+        type: boolean
+  push:
+    paths:
+      - 'Dockerfile'  # Rebuild image when Dockerfile changes
+      - 'requirements.txt'  # Rebuild when dependencies change
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/data-processor
+
+jobs:
+  # Build and push Docker image (only when needed)
+  build-image:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event.inputs.force_rebuild == 'true'
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image-tag: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set up Docker Buildx with aggressive caching
+      uses: docker/setup-buildx-action@v3
+      with:
+        driver-opts: |
+          image=moby/buildkit:buildx-stable-1
+          network=host
+        
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Build and push with maximum caching
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: true
+        tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+        cache-from: |
+          type=gha
+          type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:cache
+        cache-to: |
+          type=gha,mode=max
+          type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:cache,mode=max
+        platforms: linux/amd64
+        build-args: |
+          BUILDKIT_INLINE_CACHE=1
+
+  # Run the data processing workflow
+  process-entity-data:
+    runs-on: ubuntu-latest
+    needs: [build-image]
+    if: always() && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped')
+    permissions:
+      contents: read
+      packages: read
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Determine Docker image to use
+      id: image
+      run: |
+        # Always use the latest tag for simplicity
+        IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
+        echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+        echo "Using Docker image: $IMAGE_TAG"
+        
+    - name: Optimized Docker setup
+      run: |
+        IMAGE_TAG="${{ steps.image.outputs.image_tag }}"
+        echo "🚀 Optimized Docker setup: $IMAGE_TAG"
+        
+        # Enable Docker BuildKit for faster operations
+        export DOCKER_BUILDKIT=1
+        
+        # Try multiple strategies for fastest pull
+        echo "📦 Attempting pull strategies..."
+        
+        # Strategy 1: Direct pull (usually fastest if image exists)
+        if timeout 45s docker pull "$IMAGE_TAG" 2>/dev/null; then
+          echo "✅ Pre-built image pulled successfully"
+          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+          
+        # Strategy 2: Check if we can build with cache faster than pull
+        elif [ -f "Dockerfile" ]; then
+          echo "🔨 Building with cache (may be faster than remote pull)..."
+          docker build \
+            --cache-from "$IMAGE_TAG" \
+            --build-arg BUILDKIT_INLINE_CACHE=1 \
+            -t data-processor:local \
+            . || docker build -t data-processor:local .
+          echo "IMAGE_TAG=data-processor:local" >> $GITHUB_ENV
+          
+        else
+          echo "❌ No Dockerfile found and pull failed"
+          exit 1
+        fi
+        
+        echo "✅ Docker setup complete!"
+        
+    - name: Parse file number and setup request ID
+      id: parse-file
+      run: |
+        FILE_NUMBER="${{ github.event.inputs.file_number || '09853537' }}"
+        REQUEST_ID="${{ github.event.inputs.request_id || '' }}"
+        
+        # Generate a fallback request ID if none provided
+        if [ -z "$REQUEST_ID" ]; then
+          REQUEST_ID="dp-$(date +%Y%m%d)-${{ github.run_number }}-$(date +%s)"
+        fi
+        
+        echo "file_number=$FILE_NUMBER" >> $GITHUB_OUTPUT
+        echo "request_id=$REQUEST_ID" >> $GITHUB_OUTPUT
+        echo "Processing entity file number: $FILE_NUMBER with request ID: $REQUEST_ID"
+        
+    - name: Run data processor
+      id: processor
+      env:
+        SOLVECAPTCHA_API_KEY: ${{ secrets.SOLVECAPTCHA_API_KEY }}
+        FILE_NUMBER: ${{ steps.parse-file.outputs.file_number }}
+        REQUEST_ID: ${{ steps.parse-file.outputs.request_id }}
+      run: |
+        echo "🚀 Starting data processor..."
+        echo "File Number: $FILE_NUMBER"
+        echo "Request ID: $REQUEST_ID"
+        
+        # Run the data processor with timeout
+        docker run --rm \
+          --name data-processor-${{ github.run_number }} \
+          -e SOLVECAPTCHA_API_KEY="${SOLVECAPTCHA_API_KEY}" \
+          -e FILE_NUMBER="${FILE_NUMBER}" \
+          -e REQUEST_ID="${REQUEST_ID}" \
+          -e PYTHONUNBUFFERED=1 \
+          -v "$(pwd):/workspace" \
+          -w /workspace \
+          --memory="2g" \
+          --cpus="1.5" \
+          "$IMAGE_TAG" \
+          timeout 900s python entity_processor.py "${FILE_NUMBER}"
+        
+        # Check if processing was successful
+        if [ -f "processed_data_${REQUEST_ID}.json" ]; then
+          echo "processing_success=true" >> $GITHUB_OUTPUT
+          echo "✅ Processing completed successfully"
+        else
+          echo "processing_success=false" >> $GITHUB_OUTPUT
+          echo "❌ Processing failed - no output file found"
+        fi
+        
+    - name: List generated files
+      run: |
+        echo "Files in workspace:"
+        ls -la
+        echo "Looking for JSON files:"
+        find . -name "*.json" -type f
+        echo "Looking for log files:"
+        find . -name "logs/*" -type f 2>/dev/null || echo "No logs directory found"
+        
+    - name: Upload processed data as artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: processed-entity-data-${{ steps.parse-file.outputs.request_id }}
+        path: |
+          processed_data_*.json
+          logs/
+        retention-days: 30
+        if-no-files-found: warn
+        
+    - name: Show processing summary
+      run: |
+        echo "=== DATA PROCESSING SUMMARY ==="
+        echo "File Number: ${{ steps.parse-file.outputs.file_number }}"
+        echo "Request ID: ${{ steps.parse-file.outputs.request_id }}"
+        echo "Processing Success: ${{ steps.processor.outputs.processing_success }}"
+        
+        if [ -f processed_data_*.json ]; then
+          for file in processed_data_*.json; do
+            if [ -f "$file" ]; then
+              echo "📄 Processed data file: $file"
+              echo "📊 File size: $(wc -c < "$file") bytes"
+              
+              # Try to extract summary from the JSON structure
+              if command -v jq >/dev/null 2>&1; then
+                echo "📋 File Number: $(jq -r '.file_number // "N/A"' "$file" 2>/dev/null)"
+                echo "📈 Status: $(jq -r '.status // "N/A"' "$file" 2>/dev/null)"
+                echo "🏢 Business Name: $(jq -r '.data."Business Name" // "N/A"' "$file" 2>/dev/null)"
+                echo "📍 Business Address: $(jq -r '.data."Business Address" // "N/A"' "$file" 2>/dev/null)"
+                
+                # Count managers if present
+                MANAGER_COUNT=$(jq '.data.managers | length // 0' "$file" 2>/dev/null || echo "0")
+                echo "👥 Managers found: $MANAGER_COUNT"
+              else
+                echo "jq not available, showing file size only"
+              fi
+              echo "---"
+            fi
+          done
+        else
+          echo "❌ No processed data files found"
+          echo "Check logs for error details"
+        fi
+        echo "==========================" 
