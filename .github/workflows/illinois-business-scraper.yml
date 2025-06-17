@@ -27,7 +27,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository_owner }}/data-processor
+  IMAGE_NAME: ${{ github.repository }}/data-processor
 
 jobs:
   # Build and push Docker image (only when needed)
@@ -38,7 +38,7 @@ jobs:
       contents: read
       packages: write
     outputs:
-      image-tag: ${{ steps.repo.outputs.image_tag }}
+      image-tag: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
     
     steps:
     - name: Checkout repository
@@ -50,16 +50,6 @@ jobs:
         driver-opts: |
           image=moby/buildkit:buildx-stable-1
           network=host
-        
-    - name: Set lowercase repository name
-      id: repo
-      run: |
-        REPO_OWNER_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-        IMAGE_TAG="ghcr.io/${REPO_OWNER_LOWER}/data-processor:latest"
-        echo "owner_lower=$REPO_OWNER_LOWER" >> $GITHUB_OUTPUT
-        echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
-        echo "Using lowercase owner: $REPO_OWNER_LOWER"
-        echo "Image tag: $IMAGE_TAG"
         
     - name: Log in to Container Registry
       uses: docker/login-action@v3
@@ -73,13 +63,13 @@ jobs:
       with:
         context: .
         push: true
-        tags: ${{ steps.repo.outputs.image_tag }}
+        tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
         cache-from: |
           type=gha
-          type=registry,ref=${{ env.REGISTRY }}/${{ steps.repo.outputs.owner_lower }}/data-processor:cache
+          type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:cache
         cache-to: |
           type=gha,mode=max
-          type=registry,ref=${{ env.REGISTRY }}/${{ steps.repo.outputs.owner_lower }}/data-processor:cache,mode=max
+          type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:cache,mode=max
         platforms: linux/amd64
         build-args: |
           BUILDKIT_INLINE_CACHE=1
@@ -107,13 +97,12 @@ jobs:
     - name: Determine Docker image to use
       id: image
       run: |
-        # Convert repository name to lowercase for Docker registry
-        REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
-        IMAGE_TAG="${{ env.REGISTRY }}/${REPO_LOWER}/data-processor:latest"
+        # Always use the latest tag for simplicity
+        IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
         echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
         echo "Using Docker image: $IMAGE_TAG"
         
-    - name: Optimized Docker setup
+    - name: Optimized Docker setup (targeting 10-15 seconds)
       run: |
         IMAGE_TAG="${{ steps.image.outputs.image_tag }}"
         echo "🚀 Optimized Docker setup: $IMAGE_TAG"
