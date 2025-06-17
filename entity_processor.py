@@ -139,29 +139,20 @@ def solve_recaptcha_v2(sitekey, pageurl):
         print(f"Error solving reCAPTCHA: {str(e)}")
         raise
 
-def make_illinois_search_request(file_number, cookies):
-    """Make the Illinois business entity search request using extracted cookies"""
+def make_illinois_search_request(file_number, cookies, headers):
+    """Make the Illinois business entity search request using extracted cookies and headers"""
     
     url = "https://apps.ilsos.gov/businessentitysearch/businessentitysearch"
     
-    headers = {
-        "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-        "accept-language": "en",
-        "cache-control": "max-age=0",
+    # Use extracted headers, but ensure content-type and priority are set for form submission
+    headers = headers.copy()  # Don't modify the original
+    headers.update({
         "content-type": "application/x-www-form-urlencoded",
-        "origin": "https://apps.ilsos.gov",
         "priority": "u=0, i",
-        "referer": "https://apps.ilsos.gov/businessentitysearch/businessentitysearch",
-        "sec-ch-ua": '"Google Chrome";v="137", "Chromium";v="137", "Not/A)Brand";v="24"',
-        "sec-ch-ua-mobile": "?0",
-        "sec-ch-ua-platform": '"Windows"',
-        "sec-fetch-dest": "document",
-        "sec-fetch-mode": "navigate",
-        "sec-fetch-site": "same-origin",
-        "sec-fetch-user": "?1",
-        "upgrade-insecure-requests": "1",
-        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36"
-    }
+        "referer": "https://apps.ilsos.gov/businessentitysearch/businessentitysearch"
+    })
+    
+    print(f"[{file_number}] Using extracted headers with {len(headers)} entries")
     
     # Form data for the search
     data = {
@@ -193,30 +184,20 @@ def make_illinois_search_request(file_number, cookies):
         print(f"[{file_number}] Search request failed: {str(e)}")
         raise
 
-def make_illinois_detail_request(transaction_id, cookies):
-    """Make the Illinois business detail request using transaction ID"""
+def make_illinois_detail_request(transaction_id, cookies, headers):
+    """Make the Illinois business detail request using transaction ID, cookies and headers"""
     
     url = "https://apps.ilsos.gov/businessentitysearch/businessentitysearch"
     
-    headers = {
-        "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-        "accept-language": "en-US,en;q=0.7",
-        "cache-control": "max-age=0",
+    # Use extracted headers, but ensure content-type and priority are set for form submission
+    headers = headers.copy()  # Don't modify the original
+    headers.update({
         "content-type": "application/x-www-form-urlencoded",
-        "origin": "https://apps.ilsos.gov",
         "priority": "u=0, i",
-        "referer": "https://apps.ilsos.gov/businessentitysearch/businessentitysearch",
-        "sec-ch-ua": '"Brave";v="137", "Chromium";v="137", "Not/A)Brand";v="24"',
-        "sec-ch-ua-mobile": "?0",
-        "sec-ch-ua-platform": '"Windows"',
-        "sec-fetch-dest": "document",
-        "sec-fetch-mode": "navigate",
-        "sec-fetch-site": "same-origin",
-        "sec-fetch-user": "?1",
-        "sec-gpc": "1",
-        "upgrade-insecure-requests": "1",
-        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36"
-    }
+        "referer": "https://apps.ilsos.gov/businessentitysearch/businessentitysearch"
+    })
+    
+    print(f"[Transaction {transaction_id}] Using extracted headers with {len(headers)} entries")
     
     # Form data for the detail request
     data = {
@@ -388,9 +369,9 @@ def parse_td_ids(html_content):
     
     return td_ids
 
-def get_captcha_solved_cookies(file_number):
-    """Get cookies by solving captcha once using the provided file number"""
-    with SB(uc=True, locale="en", headless=True, xvfb=True) as sb:
+def get_captcha_solved_cookies_and_headers(file_number):
+    """Get cookies and headers by solving captcha once using the provided file number"""
+    with SB(uc=True, locale="en") as sb:
         url = "https://apps.ilsos.gov/businessentitysearch/"
         sb.activate_cdp_mode(url, tzone="America/Chicago")
         sb.sleep(3)
@@ -491,31 +472,54 @@ def get_captcha_solved_cookies(file_number):
                     # Take screenshot after captcha solution
                     save_screenshot(sb, file_number, "captcha", "after_solution")
                     
-                    # Extract cookies after redirect
-                    print("Extracting cookies from browser...")
+                    # Extract cookies and headers after redirect
+                    print("Extracting cookies and headers from browser...")
                     cookies = {}
                     browser_cookies = sb.get_cookies()
                     for cookie in browser_cookies:
                         cookies[cookie['name']] = cookie['value']
                     
-                    print(f"Extracted {len(cookies)} cookies")
-                    return cookies
+                    # Extract headers using JavaScript
+                    headers_script = """
+                    return {
+                        'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+                        'accept-language': navigator.language || 'en',
+                        'cache-control': 'max-age=0',
+                        'content-type': 'application/x-www-form-urlencoded',
+                        'origin': window.location.origin,
+                        'referer': window.location.href,
+                        'sec-ch-ua': navigator.userAgentData ? navigator.userAgentData.brands.map(b => `"${b.brand}";v="${b.version}"`).join(', ') : '"Google Chrome";v="137", "Chromium";v="137", "Not/A)Brand";v="24"',
+                        'sec-ch-ua-mobile': navigator.userAgentData ? (navigator.userAgentData.mobile ? '?1' : '?0') : '?0',
+                        'sec-ch-ua-platform': navigator.userAgentData ? `"${navigator.userAgentData.platform}"` : '"Windows"',
+                        'sec-fetch-dest': 'document',
+                        'sec-fetch-mode': 'navigate',
+                        'sec-fetch-site': 'same-origin',
+                        'sec-fetch-user': '?1',
+                        'upgrade-insecure-requests': '1',
+                        'user-agent': navigator.userAgent
+                    };
+                    """
+                    
+                    headers = sb.execute_script(headers_script)
+                    
+                    print(f"Extracted {len(cookies)} cookies and {len(headers)} headers")
+                    return cookies, headers
                     
                 else:
                     print("No sitekey found in iframe")
-                    return None
+                    return None, None
                     
             except Exception as captcha_error:
                 print(f"No captcha found or captcha error: {captcha_error}")
                 # Take screenshot on captcha error for debugging
                 save_screenshot(sb, file_number, "captcha", "error")
-                return None
+                return None, None
             
         except Exception as e:
             print(f"Error during captcha solving process: {e}")
             # Take screenshot on general error for debugging
             save_screenshot(sb, file_number, "captcha", "general_error")
-            return None
+            return None, None
 
 def scrape_illinois_business(file_number):
     """Main function to scrape a single Illinois business by file number"""
@@ -526,17 +530,17 @@ def scrape_illinois_business(file_number):
     print("STEP 1: Solving captcha and extracting cookies...")
     print("="*60)
     
-    cookies = get_captcha_solved_cookies(file_number)
+    cookies, headers = get_captcha_solved_cookies_and_headers(file_number)
     
-    if not cookies:
-        print("❌ Failed to get cookies from captcha solving")
+    if not cookies or not headers:
+        print("❌ Failed to get cookies and headers from captcha solving")
         return {
             "file_number": file_number,
             "status": "error",
-            "error": "Failed to solve captcha and extract cookies"
+            "error": "Failed to solve captcha and extract cookies/headers"
         }
     
-    print("✅ Cookies extracted successfully!")
+    print("✅ Cookies and headers extracted successfully!")
     
     # Step 2: Make search request
     print("\n" + "="*60)
@@ -544,7 +548,7 @@ def scrape_illinois_business(file_number):
     print("="*60)
     
     try:
-        response = make_illinois_search_request(file_number, cookies)
+        response = make_illinois_search_request(file_number, cookies, headers)
     except requests.exceptions.Timeout:
         return {
             "file_number": file_number,
@@ -592,7 +596,7 @@ def scrape_illinois_business(file_number):
     print("="*60)
     
     try:
-        detail_response = make_illinois_detail_request(transaction_id, cookies)
+        detail_response = make_illinois_detail_request(transaction_id, cookies, headers)
     except requests.exceptions.Timeout:
         return {
             "file_number": file_number,
