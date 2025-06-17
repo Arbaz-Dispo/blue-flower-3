@@ -13,7 +13,7 @@ from datetime import datetime
 API_KEY = os.getenv("SOLVECAPTCHA_API_KEY")
 if not API_KEY:
     raise ValueError("SOLVECAPTCHA_API_KEY environment variable is required")
-    
+
 SOLVE_URL = "https://api.solvecaptcha.com/in.php"
 RESULT_URL = "https://api.solvecaptcha.com/res.php"
 
@@ -22,6 +22,20 @@ def create_logs_folder():
     if not os.path.exists("logs"):
         os.makedirs("logs")
         print("Created logs folder")
+
+def save_screenshot(sb, file_number, request_type="screenshot", context=""):
+    """Save screenshot from SeleniumBase browser"""
+    try:
+        create_logs_folder()
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"logs/{file_number}_{request_type}_{context}_{timestamp}.png"
+        
+        sb.save_screenshot(filename)
+        print(f"[{file_number}] Saved screenshot to: {filename}")
+        return filename
+    except Exception as e:
+        print(f"[{file_number}] Error saving screenshot: {str(e)}")
+        return None
 
 def save_failed_response(file_number, response, request_type="search"):
     """Save failed response HTML to logs folder"""
@@ -376,15 +390,21 @@ def parse_td_ids(html_content):
 
 def get_captcha_solved_cookies(file_number):
     """Get cookies by solving captcha once using the provided file number"""
-    with SB(uc=True, locale="en", headless=True, xvfb=True) as sb:
+    with SB(uc=True, locale="en") as sb:
         url = "https://apps.ilsos.gov/businessentitysearch/"
         sb.activate_cdp_mode(url, tzone="America/Chicago")
+        sb.sleep(3)
 
         try:
             print("Checking for search input on Illinois page...")
             sb.wait_for_element_present('input[type="text"]', timeout=10)
             print("Search input found on Illinois page!")
-                        
+            
+            # Take screenshot of initial page
+            save_screenshot(sb, file_number, "captcha", "initial_page")
+            
+            sb.sleep(2)
+            
             # Click on the file number input field
             print("Clicking on file number input field...")
             sb.click('input[id="fileNumber"]')
@@ -397,7 +417,11 @@ def get_captcha_solved_cookies(file_number):
             print("Clicking submit button...")
             sb.click('input[type="submit"]')
             
+            sb.sleep(3)
             print("Form submitted successfully!")
+            
+            # Take screenshot after form submission
+            save_screenshot(sb, file_number, "captcha", "after_submit")
             
             # Now check if we're redirected to captcha page
             print("Checking for captcha iframe...")
@@ -405,6 +429,9 @@ def get_captcha_solved_cookies(file_number):
                 print("Waiting for captcha iframe to be present...")
                 sb.wait_for_element_present('iframe[title="Challenge Content"]', timeout=10)
                 print("Captcha iframe found")
+                
+                # Take screenshot when captcha is detected
+                save_screenshot(sb, file_number, "captcha", "captcha_detected")
 
                 # Extract sitekey from the iframe's data-key attribute
                 sitekey = sb.get_attribute('iframe[title="Challenge Content"]', 'data-key')
@@ -461,6 +488,9 @@ def get_captcha_solved_cookies(file_number):
                     sb.sleep(5)
                     print("Waiting for page redirection...")
                     
+                    # Take screenshot after captcha solution
+                    save_screenshot(sb, file_number, "captcha", "after_solution")
+                    
                     # Extract cookies after redirect
                     print("Extracting cookies from browser...")
                     cookies = {}
@@ -477,10 +507,14 @@ def get_captcha_solved_cookies(file_number):
                     
             except Exception as captcha_error:
                 print(f"No captcha found or captcha error: {captcha_error}")
+                # Take screenshot on captcha error for debugging
+                save_screenshot(sb, file_number, "captcha", "error")
                 return None
             
         except Exception as e:
             print(f"Error during captcha solving process: {e}")
+            # Take screenshot on general error for debugging
+            save_screenshot(sb, file_number, "captcha", "general_error")
             return None
 
 def scrape_illinois_business(file_number):
