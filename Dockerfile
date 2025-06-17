@@ -68,3 +68,5 @@ RUN useradd -m runner && chown runner:runner /workspace
 RUN google-chrome --version
 
 CMD ["/bin/bash"] 
+
+#line for building image
